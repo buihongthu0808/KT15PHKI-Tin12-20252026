@@ -32,6 +32,9 @@
             animation: wiggle 1s ease-in-out infinite;
         }
         /* Ngăn chọn văn bản và cuộn trang trên vùng game */
+        body {
+            overscroll-behavior: none; /* Chặn hiệu ứng kéo nảy (rubber-banding) */
+        }
         .game-container {
             touch-action: none;
             -webkit-touch-callout: none;
@@ -313,6 +316,27 @@
           const leftRefs = useRef({});
           const rightRefs = useRef({});
 
+          // --- FIX CUỘN TRANG TRÊN MOBILE ---
+          // Effect này sẽ chặn toàn bộ sự kiện touchmove trên document khi đang kéo thả
+          useEffect(() => {
+            const preventDefault = (e) => {
+                if (activeDrag && e.cancelable) {
+                    e.preventDefault();
+                }
+            };
+
+            // Nếu đang kéo, thêm listener chặn cuộn
+            if (activeDrag) {
+                // passive: false là bắt buộc để e.preventDefault() hoạt động
+                document.addEventListener('touchmove', preventDefault, { passive: false });
+            }
+
+            // Cleanup khi hết kéo hoặc component unmount
+            return () => {
+                document.removeEventListener('touchmove', preventDefault);
+            };
+          }, [activeDrag]);
+
           // --- LOGIC ---
 
           const handleLogin = () => {
@@ -350,7 +374,6 @@
             if (!isRetryButton && unlockedLevels.includes(levelId + 1)) {
                 if (retriesUsed[levelId]) {
                     setCurrentLevelId(levelId);
-                    // Lấy điểm của lần chơi cuối cùng (nếu có), nếu không thì lấy best (fallback)
                     const finalScore = lastScores[levelId] !== undefined ? lastScores[levelId] : (highScores[levelId] || 0);
                     setScore(finalScore);
                     scoreRef.current = finalScore; 
@@ -399,11 +422,6 @@
           };
 
           const goHome = () => {
-            // Không reset scores khi về map để giữ điểm tổng
-            // setHighScores({}); // Bỏ
-            // setLastScores({}); // Bỏ
-            // setUnlockedLevels([1]); // Bỏ, giữ level đã unlock
-            // setRetriesUsed({}); // Bỏ
             setCurrentScreen('instruction'); 
           };
 
@@ -459,10 +477,7 @@
             if (feedback !== null) return;
             if (connections.some(c => c.leftId === id)) return;
             
-            // QUAN TRỌNG: Ngăn chặn cuộn trang trên mobile
-            // Tuy nhiên với touch-action: none đã thêm thì e.preventDefault() ở đây có thể dự phòng
-            // if (e.cancelable) e.preventDefault(); 
-            
+            // Lấy tọa độ chính xác cho cả mouse và touch
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             
@@ -474,9 +489,9 @@
           const handleDragMove = (e) => {
             if (!activeDrag) return;
             
-            // Ngăn chặn cuộn trang khi đang kéo
-            if (e.cancelable) e.preventDefault();
-
+            // Quan trọng: Chỉ preventDefault khi có activeDrag (được xử lý trong useEffect toàn cục rồi, 
+            // nhưng giữ ở đây để chắc chắn cho mouse event nếu cần)
+            
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             if (containerRef.current) {
@@ -491,7 +506,6 @@
             const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
             const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
             
-            // Tìm element ở vị trí thả (hoạt động tốt cho cả chuột và cảm ứng)
             const elements = document.elementsFromPoint(clientX, clientY);
             const rightItem = elements.find(el => el.getAttribute('data-right-id'));
             
@@ -511,8 +525,12 @@
           };
 
           const checkMatchingAnswer = (isTimeout, finalConnections = connections) => {
+            // Chặn gọi nhiều lần
+            if (feedback !== null) return;
+
             const currentQ = currentQuestions[questionIndex];
             if (!currentQ) return; 
+            
             let isAllCorrect = true;
             if (finalConnections.length < currentQ.leftItems.length) isAllCorrect = false;
             else {
@@ -525,7 +543,7 @@
               setScore(prev => prev + 10);
               scoreRef.current += 10;
               setTimeout(() => {
-                 setFeedback(null); // Reset feedback trước khi chuyển
+                 setFeedback(null); 
                  nextQuestion();
               }, 1500);
             } else {
@@ -584,13 +602,8 @@
 
           const renderLogin = () => (
             <div className="flex flex-col items-center justify-center min-h-screen bg-sky-50 relative overflow-hidden text-slate-800 p-4">
-              {/* Background with multiple colored candies */}
               <CandyBackground />
-              
-              {/* Main Login Card */}
               <div className="z-10 bg-white/90 backdrop-blur-md p-10 rounded-[3rem] shadow-2xl border-8 border-pink-200 flex flex-col items-center max-w-lg w-full animate-fade-in-up transform transition-all hover:scale-[1.01]">
-                
-                {/* Title Section */}
                 <div className="text-center mb-10 w-full">
                   <h1 className="text-2xl md:text-3xl lg:text-4xl font-black text-rose-600 drop-shadow-sm mb-2 tracking-wide leading-tight">
                     HÀNH TRÌNH<br/>
@@ -602,41 +615,24 @@
                      <Candy className="text-orange-500 animate-bounce delay-200" size={32} />
                   </div>
                 </div>
-
-                {/* Form Section */}
                 <div className="w-full space-y-6">
-                  
-                  {/* Biệt đội / Lớp */}
                   <div className="relative group">
                     <div className="relative bg-pink-50 rounded-2xl p-2 transition-all group-hover:bg-pink-100">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-pink-400 pointer-events-none">
-                        <School size={28} />
-                      </div>
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-pink-400 pointer-events-none"><School size={28} /></div>
                       <select 
                         className="w-full p-4 pl-14 bg-transparent border-none font-bold text-xl text-slate-700 appearance-none focus:outline-none cursor-pointer"
                         value={selectedClass}
-                        onChange={(e) => {
-                          setSelectedClass(e.target.value);
-                          setSelectedName(""); 
-                        }}
+                        onChange={(e) => { setSelectedClass(e.target.value); setSelectedName(""); }}
                       >
                         <option value="">-- Chọn Biệt Đội --</option>
-                        {Object.keys(studentsData).map(cls => (
-                          <option key={cls} value={cls}>{cls}</option>
-                        ))}
+                        {Object.keys(studentsData).map(cls => <option key={cls} value={cls}>{cls}</option>)}
                       </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-pink-400 pointer-events-none">
-                        <ChevronDown size={24} strokeWidth={3} />
-                      </div>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-pink-400 pointer-events-none"><ChevronDown size={24} strokeWidth={3} /></div>
                     </div>
                   </div>
-
-                  {/* Tên Thợ Săn */}
                   <div className="relative group">
                     <div className="relative bg-indigo-50 rounded-2xl p-2 transition-all group-hover:bg-indigo-100">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none">
-                        <Smile size={28} />
-                      </div>
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none"><Smile size={28} /></div>
                       <select 
                         className="w-full p-4 pl-14 bg-transparent border-none font-bold text-xl text-slate-700 appearance-none focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         value={selectedName}
@@ -644,25 +640,17 @@
                         disabled={!selectedClass}
                       >
                         <option value="">-- Chọn Tên Thợ Săn --</option>
-                        {selectedClass && studentsData[selectedClass].map((name, idx) => (
-                          <option key={idx} value={name}>{name}</option>
-                        ))}
+                        {selectedClass && studentsData[selectedClass].map((name, idx) => <option key={idx} value={name}>{name}</option>)}
                       </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none">
-                        <ChevronDown size={24} strokeWidth={3} />
-                      </div>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none"><ChevronDown size={24} strokeWidth={3} /></div>
                     </div>
                   </div>
-
-                  {/* Start Button */}
                   <button 
-                    onClick={handleLogin}
-                    disabled={!selectedClass || !selectedName}
+                    onClick={handleLogin} disabled={!selectedClass || !selectedName}
                     className="w-full mt-8 py-5 bg-gradient-to-r from-pink-500 to-indigo-600 hover:from-pink-600 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed text-white text-2xl font-black rounded-3xl shadow-[0_8px_0_rgba(0,0,0,0.2)] active:shadow-[0_4px_0_rgba(0,0,0,0.2)] active:translate-y-1 transition-all flex items-center justify-center gap-3 uppercase tracking-wider group"
                   >
                     BẮT ĐẦU NGAY <Play size={28} fill="currentColor" className="group-hover:animate-pulse" />
                   </button>
-
                 </div>
               </div>
             </div>
@@ -673,45 +661,24 @@
               <CandyBackground />
               <div className="z-10 bg-white/90 backdrop-blur-md p-8 rounded-3xl shadow-2xl border-4 border-indigo-200 max-w-2xl w-full animate-fade-in-up">
                 <div className="flex items-center justify-center mb-6">
-                  <div className="p-4 bg-indigo-100 rounded-full text-indigo-600 shadow-inner">
-                    <Info size={48} />
-                  </div>
+                  <div className="p-4 bg-indigo-100 rounded-full text-indigo-600 shadow-inner"><Info size={48} /></div>
                 </div>
                 <h2 className="text-3xl font-black text-center mb-2 text-indigo-800 uppercase">NHIỆM VỤ THỢ SĂN</h2>
-                <p className="text-center text-slate-600 mb-8 font-medium">
-                  Chào mừng thợ săn <span className="text-indigo-600 font-bold">{selectedName}</span>! 
-                  <br/>Để giành được kho báu kẹo ngọt, bạn phải vượt qua 3 cửa ải cam go:
-                </p>
-
+                <p className="text-center text-slate-600 mb-8 font-medium">Chào mừng thợ săn <span className="text-indigo-600 font-bold">{selectedName}</span>!<br/>Để giành được kho báu kẹo ngọt, bạn phải vượt qua 3 cửa ải cam go:</p>
                 <div className="space-y-4 mb-8">
                   <div className="bg-emerald-50 border-l-8 border-emerald-500 p-4 rounded-r-xl shadow-sm flex items-start gap-4">
                     <div className="p-2 bg-white rounded-full text-emerald-600 shadow-sm"><Trees size={24} /></div>
-                    <div>
-                      <h3 className="font-bold text-emerald-800 text-lg">Cửa ải 1: Khu Rừng Bí Ẩn</h3>
-                      <p className="text-sm text-slate-600">Trả lời các câu hỏi trắc nghiệm về kiến thức HTML.</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 text-xs font-bold rounded">30 giây / câu</span>
-                    </div>
+                    <div><h3 className="font-bold text-emerald-800 text-lg">Cửa ải 1: Khu Rừng Bí Ẩn</h3><p className="text-sm text-slate-600">Trả lời các câu hỏi trắc nghiệm về kiến thức HTML.</p><span className="inline-block mt-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 text-xs font-bold rounded">30 giây / câu</span></div>
                   </div>
-
                   <div className="bg-blue-50 border-l-8 border-blue-500 p-4 rounded-r-xl shadow-sm flex items-start gap-4">
                     <div className="p-2 bg-white rounded-full text-blue-600 shadow-sm"><Waves size={24} /></div>
-                    <div>
-                      <h3 className="font-bold text-blue-800 text-lg">Cửa ải 2: Đại Dương Sâu Thẳm</h3>
-                      <p className="text-sm text-slate-600">Quyết định Đúng hoặc Sai về liên kết HTML.</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-blue-200 text-blue-800 text-xs font-bold rounded">20 giây / câu</span>
-                    </div>
+                    <div><h3 className="font-bold text-blue-800 text-lg">Cửa ải 2: Đại Dương Sâu Thẳm</h3><p className="text-sm text-slate-600">Quyết định Đúng hoặc Sai về liên kết HTML.</p><span className="inline-block mt-1 px-2 py-0.5 bg-blue-200 text-blue-800 text-xs font-bold rounded">20 giây / câu</span></div>
                   </div>
-
                   <div className="bg-rose-50 border-l-8 border-rose-500 p-4 rounded-r-xl shadow-sm flex items-start gap-4">
                     <div className="p-2 bg-white rounded-full text-rose-600 shadow-sm"><Flame size={24} /></div>
-                    <div>
-                      <h3 className="font-bold text-rose-800 text-lg">Cửa ải 3: Núi Lửa Phun Trào</h3>
-                      <p className="text-sm text-slate-600">Kéo thả để ghép nối các thẻ HTML với chức năng.</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-rose-200 text-rose-800 text-xs font-bold rounded">15 giây / câu</span>
-                    </div>
+                    <div><h3 className="font-bold text-rose-800 text-lg">Cửa ải 3: Núi Lửa Phun Trào</h3><p className="text-sm text-slate-600">Kéo thả để ghép nối các thẻ HTML với chức năng.</p><span className="inline-block mt-1 px-2 py-0.5 bg-rose-200 text-rose-800 text-xs font-bold rounded">15 giây / câu</span></div>
                   </div>
                 </div>
-
                 <button 
                   onClick={handleStartGameFlow}
                   className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xl font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
@@ -725,7 +692,6 @@
           const renderMap = () => {
             const totalLevels = DATA_LEVELS.length;
             const isFinishedAll = unlockedLevels.includes(totalLevels + 1);
-            // SỬA: Tính tổng điểm từ lastScores
             const currentTotalScore = Object.values(lastScores).reduce((a, b) => a + b, 0);
 
             return (
@@ -741,9 +707,7 @@
                   {DATA_LEVELS.map((level) => {
                     const isUnlocked = unlockedLevels.includes(level.id);
                     const isCompleted = unlockedLevels.includes(level.id + 1); 
-                    // SỬA: Hiển thị điểm lần chơi cuối
                     const currentScore = lastScores[level.id] || 0;
-
                     return (
                       <div key={level.id} className="relative z-10 w-full max-w-md flex justify-center group">
                         <button onClick={() => isUnlocked && startGame(level.id)} disabled={!isUnlocked} className={`relative w-full max-w-sm p-4 rounded-2xl border-b-8 transition-all flex items-center gap-4 ${isUnlocked ? `${level.color} border-black/20 text-white shadow-xl hover:scale-105 active:translate-y-2` : 'bg-stone-300 border-stone-400 text-stone-500 cursor-not-allowed grayscale'}`}>
@@ -767,7 +731,6 @@
 
           const renderGame = () => {
             const level = DATA_LEVELS.find(l => l.id === currentLevelId);
-            // GUARD CLAUSE: Chờ dữ liệu được nạp
             if (!level || !currentQuestions || currentQuestions.length === 0) {
                 return (
                     <div className={`flex flex-col items-center justify-center min-h-screen ${level ? level.bgColor : 'bg-slate-50'}`}>
@@ -778,7 +741,6 @@
             }
 
             const currentQ = currentQuestions[questionIndex];
-            // Thêm bảo vệ cho currentQ - Nếu không có câu hỏi (do index vượt quá) thì không render gì cả (sẽ chuyển màn hình ngay)
             if (!currentQ) return null;
             
             if (currentQ.type === 'matching') {
@@ -888,8 +850,99 @@
             );
           };
 
-          // ... (Giữ nguyên các hàm renderResult, renderVictory và return)
-          
+          const renderResult = () => {
+            const level = DATA_LEVELS.find(l => l.id === currentLevelId);
+            const isLastLevel = currentLevelId === DATA_LEVELS.length;
+            const isOutOfRetries = retriesUsed[level.id];
+
+            return (
+              <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
+                <CandyBackground />
+                <div className="bg-white w-full max-w-md rounded-3xl p-8 text-center shadow-2xl relative z-10 animate-fade-in-up">
+                   <div className="absolute -top-12 left-1/2 -translate-x-1/2">
+                      <div className="w-24 h-24 rounded-full border-8 border-white shadow-xl flex items-center justify-center bg-yellow-400"><Trophy size={48} className="text-yellow-900" /></div>
+                   </div>
+                   <div className="mt-10 mb-6">
+                     <h2 className="text-3xl font-black uppercase text-slate-700">Kết Thúc Màn {currentLevelId}</h2>
+                     <p className="text-slate-500 font-medium mt-2">Bạn đã hoàn thành phần chơi này.</p>
+                     {isOutOfRetries && (
+                        <p className="text-red-500 font-bold mt-2 animate-pulse">Bạn đã sử dụng hết lượt chơi lại ở màn này!</p>
+                     )}
+                   </div>
+                   <div className="bg-slate-50 rounded-xl p-6 mb-6 border border-slate-100">
+                      <div className="text-xs font-bold text-slate-400 uppercase mb-1">Điểm đạt được</div>
+                      <div className="text-4xl font-black text-slate-800">{scoreRef.current}</div>
+                   </div>
+                   <div className="space-y-3">
+                      {isLastLevel ? (
+                        <button onClick={() => setCurrentScreen('victory')} className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold rounded-xl shadow-lg shadow-rose-200 transition-all flex items-center justify-center gap-2 animate-pulse"><Candy size={20} /> XEM PHẦN THƯỞNG</button>
+                      ) : (
+                        <button onClick={() => startGame(currentLevelId + 1)} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2">Qua màn tiếp theo <ArrowRight /></button>
+                      )}
+                      
+                      {/* Ẩn nút Chơi lại nếu đã hết lượt */}
+                      {!isOutOfRetries ? (
+                        <button onClick={() => startGame(currentLevelId, true)} className="w-full py-3 bg-white border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold rounded-xl transition-all flex items-center justify-center gap-2"><RotateCcw size={18} /> Chơi lại màn này (Còn 1 lượt)</button>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic py-2">Bạn đã sử dụng quyền chơi lại ở màn này.</div>
+                      )}
+                      <button onClick={goMap} className="w-full py-3 text-slate-400 font-bold hover:text-slate-600">Xem bản đồ</button>
+                   </div>
+                </div>
+              </div>
+            );
+          };
+
+          const renderVictory = () => {
+            const totalScore = Object.values(lastScores).reduce((a, b) => a + b, 0);
+            let candyCount = 0;
+            let message = "";
+            if (totalScore < 50) { candyCount = 1; message = "Cố gắng hơn nhé! Tặng bạn một chiếc kẹo động viên."; } 
+            else if (totalScore <= 70) { candyCount = 3; message = "Làm tốt lắm! Phần thưởng cho bạn đây."; } 
+            else if (totalScore <= 90) { candyCount = 5; message = "Quá xuất sắc! Bạn nhận được túi kẹo lớn."; } 
+            else { candyCount = 8; message = "TUYỆT ĐỐI! BẠN LÀ THIÊN TÀI SĂN KẸO!"; }
+
+            return (
+              <div className="min-h-screen bg-gradient-to-b from-purple-600 to-indigo-800 flex items-center justify-center p-4 text-white text-center relative overflow-hidden">
+                 <div className="absolute inset-0 pointer-events-none">
+                    {[...Array(20)].map((_, i) => <Candy key={i} className="absolute text-white/10 animate-pulse" size={Math.random() * 50 + 30} style={{ top: `${Math.random() * 100}%`, left: `${Math.random() * 100}%`, animationDuration: `${Math.random() * 2 + 1}s`, transform: `rotate(${Math.random() * 360}deg)` }} />)}
+                 </div>
+                 <div className="max-w-lg w-full bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/20 shadow-2xl animate-scale-up z-10">
+                    <h1 className="text-4xl font-black mb-2 text-yellow-300 drop-shadow-md">KẾT QUẢ CHUNG CUỘC</h1>
+                    
+                    <div className="mb-6 grid grid-cols-3 gap-2 w-full">
+                        {DATA_LEVELS.map((level, idx) => {
+                            const score = lastScores[level.id] || 0;
+                            return (
+                                <div key={idx} className="bg-white/20 rounded-xl p-2 flex flex-col items-center">
+                                    <span className="text-xs font-bold text-slate-200 mb-1 uppercase">Màn {level.id}</span>
+                                    <span className="text-2xl font-black">{score}</span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    
+                    <div className="text-6xl font-black mb-6">{totalScore}/100</div>
+
+                    <div className="bg-white/90 rounded-2xl p-6 mb-6 text-slate-800">
+                       <p className="text-xl font-bold mb-2 text-sky-600">{selectedName} - Biệt đội {selectedClass}</p>
+                       <p className="text-lg font-bold mb-4">{message}</p>
+                       <div className={`mx-auto w-fit gap-4 animate-bounce ${candyCount > 5 ? 'grid grid-cols-4' : 'flex justify-center'}`}>
+                          {[...Array(candyCount)].map((_, i) => <Candy key={i} size={40} className="text-yellow-500 fill-yellow-400 drop-shadow-md" style={{animationDelay: `${i * 100}ms`}} />)}
+                       </div>
+                       <p className="mt-4 font-bold text-rose-500 uppercase">Bạn nhận được {candyCount} chiếc kẹo!</p>
+                    </div>
+                    <button 
+                      onClick={handleFinishGame}
+                      className="px-8 py-4 bg-rose-500 hover:bg-rose-600 text-white text-xl font-bold rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto"
+                    >
+                       <LogOut size={24} /> KẾT THÚC
+                    </button>
+                 </div>
+              </div>
+            );
+          };
+
           return (
             <div className="font-sans antialiased">
               {currentScreen === 'login' && renderLogin()}
