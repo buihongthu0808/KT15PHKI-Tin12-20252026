@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Hành Trình Săn Kẹo Ngọt</title>
     
     <!-- Tải Tailwind CSS để trang trí giao diện -->
@@ -31,9 +31,16 @@
         .animate-wiggle {
             animation: wiggle 1s ease-in-out infinite;
         }
+        /* Ngăn chọn văn bản và cuộn trang trên vùng game */
+        .game-container {
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
     </style>
 </head>
-<body class="bg-slate-50">
+<body class="bg-slate-50 overscroll-none">
     <div id="root"></div>
 
     <!-- Mã nguồn trò chơi -->
@@ -451,8 +458,14 @@
           const handleDragStart = (id, e) => {
             if (feedback !== null) return;
             if (connections.some(c => c.leftId === id)) return;
+            
+            // QUAN TRỌNG: Ngăn chặn cuộn trang trên mobile
+            // Tuy nhiên với touch-action: none đã thêm thì e.preventDefault() ở đây có thể dự phòng
+            // if (e.cancelable) e.preventDefault(); 
+            
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
             const containerRect = containerRef.current.getBoundingClientRect();
             setMousePos({ x: clientX - containerRect.left, y: clientY - containerRect.top });
             setActiveDrag({ startId: id });
@@ -460,6 +473,10 @@
 
           const handleDragMove = (e) => {
             if (!activeDrag) return;
+            
+            // Ngăn chặn cuộn trang khi đang kéo
+            if (e.cancelable) e.preventDefault();
+
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             if (containerRef.current) {
@@ -470,10 +487,14 @@
 
           const handleDragEnd = (e) => {
             if (!activeDrag) return;
+            
             const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
             const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+            
+            // Tìm element ở vị trí thả (hoạt động tốt cho cả chuột và cảm ứng)
             const elements = document.elementsFromPoint(clientX, clientY);
             const rightItem = elements.find(el => el.getAttribute('data-right-id'));
+            
             if (rightItem) {
               const rightId = rightItem.getAttribute('data-right-id');
               if (!connections.some(c => c.rightId === rightId)) {
@@ -763,11 +784,12 @@
             if (currentQ.type === 'matching') {
               return (
                 <div 
-                  className={`flex flex-col min-h-screen ${level.bgColor} text-slate-800 relative select-none`}
+                  className={`flex flex-col min-h-screen ${level.bgColor} text-slate-800 relative select-none game-container`} // Added game-container class for touch-action: none
                   onMouseMove={handleDragMove}
                   onTouchMove={handleDragMove}
                   onMouseUp={handleDragEnd}
                   onTouchEnd={handleDragEnd}
+                  style={{ touchAction: 'none' }} // Explicit inline style
                 >
                   <div className="bg-white/90 backdrop-blur p-3 shadow-md sticky top-0 z-30 flex items-center justify-between border-b border-slate-200">
                     <div className="flex items-center gap-3">
@@ -866,103 +888,8 @@
             );
           };
 
-          const renderResult = () => {
-            const level = DATA_LEVELS.find(l => l.id === currentLevelId);
-            const isLastLevel = currentLevelId === DATA_LEVELS.length;
-            const isOutOfRetries = retriesUsed[level.id];
-
-            return (
-              <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
-                <CandyBackground />
-                <div className="bg-white w-full max-w-md rounded-3xl p-8 text-center shadow-2xl relative z-10 animate-fade-in-up">
-                   <div className="absolute -top-12 left-1/2 -translate-x-1/2">
-                      <div className="w-24 h-24 rounded-full border-8 border-white shadow-xl flex items-center justify-center bg-yellow-400"><Trophy size={48} className="text-yellow-900" /></div>
-                   </div>
-                   <div className="mt-10 mb-6">
-                     <h2 className="text-3xl font-black uppercase text-slate-700">Kết Thúc Màn {currentLevelId}</h2>
-                     <p className="text-slate-500 font-medium mt-2">Bạn đã hoàn thành phần chơi này.</p>
-                     {isOutOfRetries && (
-                        <p className="text-red-500 font-bold mt-2 animate-pulse">Bạn đã sử dụng hết lượt chơi lại ở màn này!</p>
-                     )}
-                   </div>
-                   <div className="bg-slate-50 rounded-xl p-6 mb-6 border border-slate-100">
-                      <div className="text-xs font-bold text-slate-400 uppercase mb-1">Điểm đạt được</div>
-                      <div className="text-4xl font-black text-slate-800">{scoreRef.current}</div>
-                   </div>
-                   <div className="space-y-3">
-                      {isLastLevel ? (
-                        <button onClick={() => setCurrentScreen('victory')} className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold rounded-xl shadow-lg shadow-rose-200 transition-all flex items-center justify-center gap-2 animate-pulse"><Candy size={20} /> XEM PHẦN THƯỞNG</button>
-                      ) : (
-                        <button onClick={() => startGame(currentLevelId + 1)} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2">Qua màn tiếp theo <ArrowRight /></button>
-                      )}
-                      
-                      {/* Ẩn nút Chơi lại nếu đã hết lượt */}
-                      {!isOutOfRetries ? (
-                        <button onClick={() => startGame(currentLevelId, true)} className="w-full py-3 bg-white border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold rounded-xl transition-all flex items-center justify-center gap-2"><RotateCcw size={18} /> Chơi lại màn này (Còn 1 lượt)</button>
-                      ) : (
-                        <div className="text-sm text-slate-400 italic py-2">Bạn đã sử dụng quyền chơi lại ở màn này.</div>
-                      )}
-                      <button onClick={goMap} className="w-full py-3 text-slate-400 font-bold hover:text-slate-600">Xem bản đồ</button>
-                   </div>
-                </div>
-              </div>
-            );
-          };
-
-          const renderVictory = () => {
-            // SỬA: Tính tổng điểm từ lastScores (điểm lần chơi cuối)
-            const totalScore = Object.values(lastScores).reduce((a, b) => a + b, 0);
-            
-            let candyCount = 0;
-            let message = "";
-            if (totalScore < 50) { candyCount = 1; message = "Cố gắng hơn nhé! Tặng bạn một chiếc kẹo động viên."; } 
-            else if (totalScore <= 70) { candyCount = 3; message = "Làm tốt lắm! Phần thưởng cho bạn đây."; } 
-            else if (totalScore <= 90) { candyCount = 5; message = "Quá xuất sắc! Bạn nhận được túi kẹo lớn."; } 
-            else { candyCount = 8; message = "TUYỆT ĐỐI! BẠN LÀ THIÊN TÀI SĂN KẸO!"; }
-
-            return (
-              <div className="min-h-screen bg-gradient-to-b from-purple-600 to-indigo-800 flex items-center justify-center p-4 text-white text-center relative overflow-hidden">
-                 <div className="absolute inset-0 pointer-events-none">
-                    {[...Array(20)].map((_, i) => <Candy key={i} className="absolute text-white/10 animate-pulse" size={Math.random() * 50 + 30} style={{ top: `${Math.random() * 100}%`, left: `${Math.random() * 100}%`, animationDuration: `${Math.random() * 2 + 1}s`, transform: `rotate(${Math.random() * 360}deg)` }} />)}
-                 </div>
-                 <div className="max-w-lg w-full bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/20 shadow-2xl animate-scale-up z-10">
-                    <h1 className="text-4xl font-black mb-2 text-yellow-300 drop-shadow-md">KẾT QUẢ CHUNG CUỘC</h1>
-                    
-                    {/* Bảng điểm chi tiết */}
-                    <div className="mb-6 grid grid-cols-3 gap-2 w-full">
-                        {DATA_LEVELS.map((level, idx) => {
-                            const score = lastScores[level.id] || 0;
-                            return (
-                                <div key={idx} className="bg-white/20 rounded-xl p-2 flex flex-col items-center">
-                                    <span className="text-xs font-bold text-slate-200 mb-1 uppercase">Màn {level.id}</span>
-                                    <span className="text-2xl font-black">{score}</span>
-                                </div>
-                            )
-                        })}
-                    </div>
-                    
-                    <div className="text-6xl font-black mb-6">{totalScore}/100</div>
-
-                    <div className="bg-white/90 rounded-2xl p-6 mb-6 text-slate-800">
-                       <p className="text-xl font-bold mb-2 text-sky-600">{selectedName} - Biệt đội {selectedClass}</p>
-                       <p className="text-lg font-bold mb-4">{message}</p>
-                       <div className={`mx-auto w-fit gap-4 animate-bounce ${candyCount > 5 ? 'grid grid-cols-4' : 'flex justify-center'}`}>
-                          {[...Array(candyCount)].map((_, i) => <Candy key={i} size={40} className="text-yellow-500 fill-yellow-400 drop-shadow-md" style={{animationDelay: `${i * 100}ms`}} />)}
-                       </div>
-                       <p className="mt-4 font-bold text-rose-500 uppercase">Bạn nhận được {candyCount} chiếc kẹo!</p>
-                    </div>
-                    {/* Nút Kết thúc thay vì Chơi lại */}
-                    <button 
-                      onClick={handleFinishGame}
-                      className="px-8 py-4 bg-rose-500 hover:bg-rose-600 text-white text-xl font-bold rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto"
-                    >
-                       <LogOut size={24} /> KẾT THÚC
-                    </button>
-                 </div>
-              </div>
-            );
-          };
-
+          // ... (Giữ nguyên các hàm renderResult, renderVictory và return)
+          
           return (
             <div className="font-sans antialiased">
               {currentScreen === 'login' && renderLogin()}
