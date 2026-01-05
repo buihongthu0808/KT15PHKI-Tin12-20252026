@@ -70,7 +70,7 @@
             "Bùi Đức Minh", "Phạm Thúy Nga", "Nguyễn Duy Nguyên", "Phạm Thị Yến Nhi", "Trân Thị Kim Như", 
             "Lưu Thị Mai Phương", "Kiều Như Thành", "Nguyễn Thị Phương Thảo", "Lại Thị Hồng Thuỷ", 
             "Trần Minh Thư", "Trần Minh Thư", "Đỗ Minh Tiến", "Đồng Thu Trang", "Lưu Thị Thu Trang", 
-            "Nguyễn Quỳnh Trang", "Trân Thùy Trang", "Trần Văn Trọng", "Nguyễn Hoàng Thái Tuấn", 
+            "Nguyễn Quỳnh Trang", "Trần Thuỳ Trang", "Trần Văn Trọng", "Nguyễn Hoàng Thái Tuấn", 
             "Trân Thanh Tùng", "Trần Thị Hoài Vân", "Lại Thế Vinh"
           ]
         };
@@ -175,7 +175,7 @@
             type: "matching",
             questions: [
               {
-                q: "Câu 1: Ghép thẻ HTML với chức năng đúng:",
+                q: "Ghép thẻ HTML với chức năng đúng:",
                 pairs: [
                   { left: "<table>", right: "Tạo bảng" },
                   { left: "<tr>", right: "Tạo dòng trong bảng" },
@@ -184,7 +184,7 @@
                 ]
               },
               {
-                q: "Câu 2: Ghép thẻ tạo danh sách với mô tả đúng:",
+                q: "Ghép thẻ tạo danh sách với mô tả đúng:",
                 pairs: [
                   { left: "<ul>", right: "Danh sách không thứ tự" },
                   { left: "<ol>", right: "Danh sách có thứ tự" },
@@ -193,7 +193,7 @@
                 ]
               },
               {
-                q: "Câu 3: Ghép các thẻ định dạng văn bản với ý nghĩa:",
+                q: "Ghép các thẻ định dạng văn bản với ý nghĩa:",
                 pairs: [
                   { left: "<b>", right: "In đậm văn bản" },
                   { left: "<i>", right: "In nghiêng văn bản" },
@@ -288,10 +288,15 @@
           const [isPaused, setIsPaused] = useState(false);
           const [selectedOption, setSelectedOption] = useState(null);
           const [feedback, setFeedback] = useState(null); 
-          const [highScores, setHighScores] = useState({});
+          
+          // Scores
+          const [highScores, setHighScores] = useState({}); // Lưu điểm cao nhất
+          const [lastScores, setLastScores] = useState({}); // Lưu điểm lần chơi cuối
           const scoreRef = useRef(0);
-          const [retryUsed, setRetryUsed] = useState(false); 
           const timerRef = useRef(null);
+
+          // Quản lý lượt chơi lại cho từng màn: { 1: true, 2: false, ... }
+          const [retriesUsed, setRetriesUsed] = useState({});
 
           // Matching Game State
           const [connections, setConnections] = useState([]); 
@@ -305,9 +310,13 @@
 
           const handleLogin = () => {
             if (selectedClass && selectedName) {
-              setCurrentScreen('instruction'); // Vào màn hình hướng dẫn trước
+              setCurrentScreen('instruction'); 
             }
           };
+
+          const handleStartGameFlow = () => {
+            setCurrentScreen('map'); 
+          }
 
           const handleFinishGame = () => {
             const newStudentsData = { ...studentsData };
@@ -321,13 +330,32 @@
             setSelectedName("");
             setSelectedClass("");
             setHighScores({});
+            setLastScores({});
             setUnlockedLevels([1]);
             setScore(0);
             setLives(3);
+            setRetriesUsed({}); 
             setCurrentScreen('login');
           };
           
-          const startGame = (levelId, isRetry = false) => {
+          const startGame = (levelId, isRetryButton = false) => {
+            // LOGIC KIỂM TRA QUYỀN CHƠI LẠI
+            if (!isRetryButton && unlockedLevels.includes(levelId + 1)) {
+                if (retriesUsed[levelId]) {
+                    setCurrentLevelId(levelId);
+                    // Lấy điểm của lần chơi cuối cùng (nếu có), nếu không thì lấy best (fallback)
+                    const finalScore = lastScores[levelId] !== undefined ? lastScores[levelId] : (highScores[levelId] || 0);
+                    setScore(finalScore);
+                    scoreRef.current = finalScore; 
+                    setCurrentScreen('result');
+                    return; 
+                } else {
+                    setRetriesUsed(prev => ({ ...prev, [levelId]: true }));
+                }
+            } else if (isRetryButton) {
+                 setRetriesUsed(prev => ({ ...prev, [levelId]: true }));
+            }
+
             const level = DATA_LEVELS.find(l => l.id === levelId);
             
             let levelQuestions = [...level.questions];
@@ -359,18 +387,22 @@
             setSelectedOption(null);
             setFeedback(null);
             setConnections([]);
-            if (!isRetry) setRetryUsed(false);
+            
             setCurrentScreen('game');
           };
 
           const goHome = () => {
-            setHighScores({});
-            setUnlockedLevels([1]);
-            setCurrentScreen('instruction'); // Quay về hướng dẫn thay vì Home cũ
+            // Không reset scores khi về map để giữ điểm tổng
+            // setHighScores({}); // Bỏ
+            // setLastScores({}); // Bỏ
+            // setUnlockedLevels([1]); // Bỏ, giữ level đã unlock
+            // setRetriesUsed({}); // Bỏ
+            setCurrentScreen('instruction'); 
           };
 
           const goMap = () => setCurrentScreen('map');
 
+          // --- QUẢN LÝ THỜI GIAN ---
           useEffect(() => {
             if (currentScreen === 'game' && !isPaused && timeLeft > 0 && feedback === null) {
               if (timeLeft <= 10) playTickSound();
@@ -379,7 +411,7 @@
               }, 1000);
             } else if (timeLeft === 0 && currentScreen === 'game' && feedback === null) {
               const currentQ = currentQuestions[questionIndex];
-              if (currentQ.type === 'matching') {
+              if (currentQ && currentQ.type === 'matching') {
                 checkMatchingAnswer(true); 
               } else {
                 handleWrongAnswer();
@@ -387,6 +419,23 @@
             }
             return () => clearTimeout(timerRef.current);
           }, [timeLeft, currentScreen, isPaused, feedback]);
+
+          // --- QUẢN LÝ CHUYỂN CÂU HỎI ---
+          useEffect(() => {
+            if (currentScreen === 'game' && currentQuestions.length > 0) {
+              if (questionIndex >= currentQuestions.length) {
+                finishGame();
+              } else {
+                const level = DATA_LEVELS.find(l => l.id === currentLevelId);
+                if (level && feedback === null) {
+                   setTimeLeft(level.timePerQuestion);
+                   setSelectedOption(null);
+                   setFeedback(null); 
+                   setConnections([]);
+                }
+              }
+            }
+          }, [questionIndex]); 
 
           // --- MATCHING GAME LOGIC ---
           const getCoordinates = (element) => {
@@ -442,6 +491,7 @@
 
           const checkMatchingAnswer = (isTimeout, finalConnections = connections) => {
             const currentQ = currentQuestions[questionIndex];
+            if (!currentQ) return; 
             let isAllCorrect = true;
             if (finalConnections.length < currentQ.leftItems.length) isAllCorrect = false;
             else {
@@ -453,12 +503,18 @@
               setFeedback('correct');
               setScore(prev => prev + 10);
               scoreRef.current += 10;
-              setTimeout(nextQuestion, 1500);
+              setTimeout(() => {
+                 setFeedback(null); // Reset feedback trước khi chuyển
+                 nextQuestion();
+              }, 1500);
             } else {
               setFeedback('wrong');
               setLives(prev => prev - 1);
               if (lives <= 1) setTimeout(finishGame, 1000);
-              else setTimeout(nextQuestion, 2000);
+              else setTimeout(() => {
+                 setFeedback(null);
+                 nextQuestion();
+              }, 2000);
             }
           };
 
@@ -471,7 +527,10 @@
               setFeedback('correct');
               setScore(prev => prev + 10);
               scoreRef.current += 10;
-              setTimeout(nextQuestion, 1000);
+              setTimeout(() => {
+                 setFeedback(null);
+                 nextQuestion();
+              }, 1000);
             } else {
               handleWrongAnswer();
             }
@@ -481,24 +540,19 @@
             setFeedback('wrong');
             setLives(prev => prev - 1);
             if (lives <= 1) setTimeout(finishGame, 1000);
-            else setTimeout(nextQuestion, 1500);
+            else setTimeout(() => {
+               setFeedback(null);
+               nextQuestion();
+            }, 1500);
           };
 
           const nextQuestion = () => {
-            if (questionIndex < currentQuestions.length - 1) {
-              setQuestionIndex(prev => prev + 1);
-              const level = DATA_LEVELS.find(l => l.id === currentLevelId);
-              setTimeLeft(level.timePerQuestion);
-              setSelectedOption(null);
-              setFeedback(null);
-              setConnections([]);
-            } else {
-              finishGame();
-            }
+            setQuestionIndex(prev => prev + 1);
           };
 
           const finishGame = () => {
             setHighScores(prev => ({ ...prev, [currentLevelId]: Math.max(prev[currentLevelId] || 0, scoreRef.current) }));
+            setLastScores(prev => ({ ...prev, [currentLevelId]: scoreRef.current }));
             if (!unlockedLevels.includes(currentLevelId + 1)) {
               setUnlockedLevels([...unlockedLevels, currentLevelId + 1]);
             }
@@ -519,7 +573,6 @@
                 <div className="text-center mb-10 w-full">
                   <h1 className="text-2xl md:text-3xl lg:text-4xl font-black text-rose-600 drop-shadow-sm mb-2 tracking-wide leading-tight">
                     HÀNH TRÌNH<br/>
-                    {/* Sử dụng whitespace-nowrap để ép chữ "SĂN KẸO NGỌT" luôn ở trên một dòng */}
                     <span className="text-3xl md:text-4xl lg:text-5xl text-purple-600 inline-block mt-2 whitespace-nowrap">SĂN KẸO NGỌT</span>
                   </h1>
                   <div className="flex justify-center gap-2 mt-4">
@@ -639,7 +692,7 @@
                 </div>
 
                 <button 
-                  onClick={() => setCurrentScreen('map')}
+                  onClick={handleStartGameFlow}
                   className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xl font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
                 >
                   ĐÃ HIỂU, LÊN ĐƯỜNG! <ArrowRight />
@@ -651,12 +704,15 @@
           const renderMap = () => {
             const totalLevels = DATA_LEVELS.length;
             const isFinishedAll = unlockedLevels.includes(totalLevels + 1);
+            // SỬA: Tính tổng điểm từ lastScores
+            const currentTotalScore = Object.values(lastScores).reduce((a, b) => a + b, 0);
+
             return (
               <div className="min-h-screen bg-amber-100 flex flex-col relative overflow-hidden">
                 <CandyBackground />
                 <div className="bg-amber-800 text-amber-50 p-4 shadow-lg z-20 flex justify-between items-center sticky top-0">
                   <button onClick={goHome} className="p-2 hover:bg-amber-700 rounded-full transition-colors"><Home size={24} /></button>
-                  <div className="flex items-center gap-2 font-bold text-lg"><Trophy className="text-yellow-400" /> <span>Tổng Điểm: {Object.values(highScores).reduce((a, b) => a + b, 0)}/100</span></div>
+                  <div className="flex items-center gap-2 font-bold text-lg"><Trophy className="text-yellow-400" /> <span>Tổng Điểm: {currentTotalScore}/100</span></div>
                   <div className="w-10"></div>
                 </div>
                 <div className="flex-1 flex flex-col items-center justify-start py-12 px-4 gap-8 relative overflow-y-auto z-10">
@@ -664,13 +720,15 @@
                   {DATA_LEVELS.map((level) => {
                     const isUnlocked = unlockedLevels.includes(level.id);
                     const isCompleted = unlockedLevels.includes(level.id + 1); 
-                    const highScore = highScores[level.id] || 0;
+                    // SỬA: Hiển thị điểm lần chơi cuối
+                    const currentScore = lastScores[level.id] || 0;
+
                     return (
                       <div key={level.id} className="relative z-10 w-full max-w-md flex justify-center group">
                         <button onClick={() => isUnlocked && startGame(level.id)} disabled={!isUnlocked} className={`relative w-full max-w-sm p-4 rounded-2xl border-b-8 transition-all flex items-center gap-4 ${isUnlocked ? `${level.color} border-black/20 text-white shadow-xl hover:scale-105 active:translate-y-2` : 'bg-stone-300 border-stone-400 text-stone-500 cursor-not-allowed grayscale'}`}>
                           <div className={`p-3 rounded-full shrink-0 ${isUnlocked ? 'bg-white/20' : 'bg-stone-400/20'}`}>{isUnlocked ? level.icon : <Lock size={24} />}</div>
                           <div className="text-left flex-1"><h3 className="font-bold text-lg leading-tight">{level.title}</h3><p className="text-xs opacity-90">{level.description}</p></div>
-                          <div className="flex flex-col items-end shrink-0"><span className="text-xs font-bold uppercase opacity-70">Điểm</span><span className="text-xl font-black">{highScore}</span></div>
+                          <div className="flex flex-col items-end shrink-0"><span className="text-xs font-bold uppercase opacity-70">Điểm</span><span className="text-xl font-black">{currentScore}</span></div>
                           {isCompleted && <div className="absolute -top-2 -right-2 bg-yellow-400 text-white p-1 rounded-full border-2 border-white shadow"><Check size={14} strokeWidth={4} /></div>}
                         </button>
                       </div>
@@ -686,10 +744,225 @@
             );
           };
 
-          // ... (Giữ nguyên các hàm renderGame, renderResult, renderVictory)
-          // Để tiết kiệm không gian, tôi chỉ liệt kê lại các hàm đã có trong phiên bản trước.
-          // Trong file thực tế, hãy đảm bảo copy đầy đủ các hàm này.
-          
+          const renderGame = () => {
+            const level = DATA_LEVELS.find(l => l.id === currentLevelId);
+            // GUARD CLAUSE: Chờ dữ liệu được nạp
+            if (!level || !currentQuestions || currentQuestions.length === 0) {
+                return (
+                    <div className={`flex flex-col items-center justify-center min-h-screen ${level ? level.bgColor : 'bg-slate-50'}`}>
+                        <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-500 mb-4"></div>
+                        <p className="text-xl font-bold text-slate-600 animate-pulse">Đang chuẩn bị câu hỏi...</p>
+                    </div>
+                );
+            }
+
+            const currentQ = currentQuestions[questionIndex];
+            // Thêm bảo vệ cho currentQ - Nếu không có câu hỏi (do index vượt quá) thì không render gì cả (sẽ chuyển màn hình ngay)
+            if (!currentQ) return null;
+            
+            if (currentQ.type === 'matching') {
+              return (
+                <div 
+                  className={`flex flex-col min-h-screen ${level.bgColor} text-slate-800 relative select-none`}
+                  onMouseMove={handleDragMove}
+                  onTouchMove={handleDragMove}
+                  onMouseUp={handleDragEnd}
+                  onTouchEnd={handleDragEnd}
+                >
+                  <div className="bg-white/90 backdrop-blur p-3 shadow-md sticky top-0 z-30 flex items-center justify-between border-b border-slate-200">
+                    <div className="flex items-center gap-3">
+                       <div className={`p-2 rounded-lg ${level.color} text-white shadow`}>{level.icon}</div>
+                       <div><div className="text-xs font-bold text-slate-400 uppercase">Điểm vòng này</div><div className={`text-xl font-black ${level.accentColor}`}>{score}</div></div>
+                    </div>
+                    <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-800 text-white px-4 py-1.5 rounded-full shadow-lg"><Clock size={16} className={timeLeft <= 10 ? "animate-pulse text-red-400" : "text-slate-300"} /><span className="font-mono font-bold">{timeLeft}s</span></div>
+                    <div className="flex gap-1">{[...Array(3)].map((_, i) => <Heart key={i} className={`w-6 h-6 drop-shadow-sm ${i < lives ? "fill-red-500 text-red-600" : "fill-slate-200 text-slate-300"}`} />)}</div>
+                  </div>
+                  <div className="flex-1 p-4 flex flex-col">
+                    <h2 className="text-xl md:text-2xl font-bold text-center mb-6 text-slate-800">{currentQ.q}</h2>
+                    <div className="flex-1 flex justify-between gap-8 relative max-w-4xl mx-auto w-full" ref={containerRef}>
+                      <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" style={{overflow: 'visible'}}>
+                        {connections.map((c, i) => {
+                          const leftEl = leftRefs.current[c.leftId];
+                          const rightEl = rightRefs.current[c.rightId];
+                          if (!leftEl || !rightEl) return null;
+                          const start = getCoordinates(leftEl);
+                          const end = getCoordinates(rightEl);
+                          let strokeColor = "#94a3b8"; 
+                          if (feedback === 'correct') strokeColor = "#22c55e"; 
+                          else if (feedback === 'wrong') strokeColor = (c.leftId === c.rightId) ? "#22c55e" : "#ef4444"; 
+                          return <line key={i} x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={strokeColor} strokeWidth="4" strokeLinecap="round" />;
+                        })}
+                        {activeDrag && leftRefs.current[activeDrag.startId] && (
+                          <line x1={getCoordinates(leftRefs.current[activeDrag.startId]).x} y1={getCoordinates(leftRefs.current[activeDrag.startId]).y} x2={mousePos.x} y2={mousePos.y} stroke="#3b82f6" strokeWidth="4" strokeLinecap="round" strokeDasharray="5,5" />
+                        )}
+                      </svg>
+                      <div className="flex flex-col justify-around w-1/3">
+                        {currentQ.leftItems.map((item) => {
+                          const isConnected = connections.some(c => c.leftId === item.id);
+                          return (
+                            <div key={item.id} ref={el => leftRefs.current[item.id] = el} onMouseDown={(e) => handleDragStart(item.id, e)} onTouchStart={(e) => handleDragStart(item.id, e)} className={`p-4 md:p-6 rounded-2xl border-4 font-bold text-center bg-white shadow-md relative z-20 cursor-grab active:cursor-grabbing touch-none ${isConnected ? 'border-slate-400 text-slate-400' : `border-indigo-200 text-indigo-700 hover:border-indigo-400`} ${activeDrag?.startId === item.id ? 'ring-4 ring-blue-300' : ''}`}>
+                              {item.content}
+                              <div className="absolute right-[-10px] top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-300 rounded-full border-2 border-white" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex flex-col justify-around w-1/3">
+                        {currentQ.rightItems.map((item) => {
+                          const isConnected = connections.some(c => c.rightId === item.id);
+                          return (
+                            <div key={item.id} ref={el => rightRefs.current[item.id] = el} data-right-id={item.id} className={`p-4 md:p-6 rounded-2xl border-4 font-bold text-center bg-white shadow-md relative z-20 transition-all ${isConnected ? 'border-slate-400 text-slate-400 bg-slate-50' : 'border-orange-200 text-orange-800'}`}>
+                              {item.content}
+                              <div className="absolute left-[-10px] top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-300 rounded-full border-2 border-white" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {feedback && <div className={`mt-4 text-center font-black text-xl animate-bounce ${feedback === 'correct' ? 'text-green-600' : 'text-red-600'}`}>{feedback === 'correct' ? "CHÍNH XÁC! TUYỆT VỜI!" : "SAI RỒI! HÃY CỐ GẮNG HƠN!"}</div>}
+                  </div>
+                </div>
+              );
+            }
+
+            const optionLabels = ["A", "B", "C", "D"];
+            return (
+              <div className={`flex flex-col min-h-screen ${level.bgColor} text-slate-800 relative`}>
+                <div className="bg-white/90 backdrop-blur p-3 shadow-md sticky top-0 z-30 flex items-center justify-between border-b border-slate-200">
+                  <div className="flex items-center gap-3">
+                     <div className={`p-2 rounded-lg ${level.color} text-white shadow`}>{level.icon}</div>
+                     <div><div className="text-xs font-bold text-slate-400 uppercase">Điểm vòng này</div><div className={`text-xl font-black ${level.accentColor}`}>{score}</div></div>
+                  </div>
+                  <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-800 text-white px-4 py-1.5 rounded-full shadow-lg"><Clock size={16} className={timeLeft <= 10 ? "animate-pulse text-red-400" : "text-slate-300"} /><span className="font-mono font-bold">{timeLeft}s</span></div>
+                  <div className="flex gap-1">{[...Array(3)].map((_, i) => <Heart key={i} className={`w-6 h-6 drop-shadow-sm ${i < lives ? "fill-red-500 text-red-600" : "fill-slate-200 text-slate-300"}`} />)}</div>
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center p-4">
+                  <div className="w-full max-w-3xl">
+                    <div className="bg-white rounded-3xl shadow-xl border-b-8 border-slate-100 p-6 md:p-10 mb-8 text-center relative overflow-hidden">
+                       <div className="absolute top-0 left-0 w-full h-2 bg-slate-100"><div className={`h-full transition-all duration-500 ${level.color}`} style={{width: `${((questionIndex)/currentQuestions.length)*100}%`}}></div></div>
+                       <h2 className="text-2xl md:text-3xl font-bold mt-4 mb-2 text-slate-800">{currentQ.q}</h2>
+                       <p className="text-slate-400 text-sm font-medium">Câu hỏi {questionIndex + 1} / {currentQuestions.length}</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {currentQ.options.map((opt, idx) => {
+                        let statusClass = "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50";
+                        if (feedback) {
+                           if (idx === currentQ.correct) statusClass = "bg-emerald-500 border-emerald-600 text-white ring-4 ring-emerald-200";
+                           else if (idx === selectedOption) statusClass = "bg-rose-500 border-rose-600 text-white opacity-50";
+                           else statusClass = "opacity-40 bg-slate-100 border-slate-200";
+                        }
+                        return (
+                          <button key={idx} onClick={() => handleMCAnswer(idx)} disabled={feedback !== null} className={`relative p-5 rounded-2xl border-b-4 font-bold text-lg transition-all text-left ${statusClass} ${!feedback ? 'shadow-sm active:border-b-0 active:translate-y-1' : ''}`}>
+                            <span className="font-black mr-2 opacity-60">{optionLabels[idx]}.</span>{opt}
+                            {feedback === 'correct' && idx === currentQ.correct && <Check className="absolute right-4 top-1/2 -translate-y-1/2" strokeWidth={3} />}
+                            {feedback === 'wrong' && idx === selectedOption && <X className="absolute right-4 top-1/2 -translate-y-1/2" strokeWidth={3} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          const renderResult = () => {
+            const level = DATA_LEVELS.find(l => l.id === currentLevelId);
+            const isLastLevel = currentLevelId === DATA_LEVELS.length;
+            const isOutOfRetries = retriesUsed[level.id];
+
+            return (
+              <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
+                <CandyBackground />
+                <div className="bg-white w-full max-w-md rounded-3xl p-8 text-center shadow-2xl relative z-10 animate-fade-in-up">
+                   <div className="absolute -top-12 left-1/2 -translate-x-1/2">
+                      <div className="w-24 h-24 rounded-full border-8 border-white shadow-xl flex items-center justify-center bg-yellow-400"><Trophy size={48} className="text-yellow-900" /></div>
+                   </div>
+                   <div className="mt-10 mb-6">
+                     <h2 className="text-3xl font-black uppercase text-slate-700">Kết Thúc Màn {currentLevelId}</h2>
+                     <p className="text-slate-500 font-medium mt-2">Bạn đã hoàn thành phần chơi này.</p>
+                     {isOutOfRetries && (
+                        <p className="text-red-500 font-bold mt-2 animate-pulse">Bạn đã sử dụng hết lượt chơi lại ở màn này!</p>
+                     )}
+                   </div>
+                   <div className="bg-slate-50 rounded-xl p-6 mb-6 border border-slate-100">
+                      <div className="text-xs font-bold text-slate-400 uppercase mb-1">Điểm đạt được</div>
+                      <div className="text-4xl font-black text-slate-800">{scoreRef.current}</div>
+                   </div>
+                   <div className="space-y-3">
+                      {isLastLevel ? (
+                        <button onClick={() => setCurrentScreen('victory')} className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold rounded-xl shadow-lg shadow-rose-200 transition-all flex items-center justify-center gap-2 animate-pulse"><Candy size={20} /> XEM PHẦN THƯỞNG</button>
+                      ) : (
+                        <button onClick={() => startGame(currentLevelId + 1)} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2">Qua màn tiếp theo <ArrowRight /></button>
+                      )}
+                      
+                      {/* Ẩn nút Chơi lại nếu đã hết lượt */}
+                      {!isOutOfRetries ? (
+                        <button onClick={() => startGame(currentLevelId, true)} className="w-full py-3 bg-white border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold rounded-xl transition-all flex items-center justify-center gap-2"><RotateCcw size={18} /> Chơi lại màn này (Còn 1 lượt)</button>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic py-2">Bạn đã sử dụng quyền chơi lại ở màn này.</div>
+                      )}
+                      <button onClick={goMap} className="w-full py-3 text-slate-400 font-bold hover:text-slate-600">Xem bản đồ</button>
+                   </div>
+                </div>
+              </div>
+            );
+          };
+
+          const renderVictory = () => {
+            // SỬA: Tính tổng điểm từ lastScores (điểm lần chơi cuối)
+            const totalScore = Object.values(lastScores).reduce((a, b) => a + b, 0);
+            
+            let candyCount = 0;
+            let message = "";
+            if (totalScore < 50) { candyCount = 1; message = "Cố gắng hơn nhé! Tặng bạn một chiếc kẹo động viên."; } 
+            else if (totalScore <= 70) { candyCount = 3; message = "Làm tốt lắm! Phần thưởng cho bạn đây."; } 
+            else if (totalScore <= 90) { candyCount = 5; message = "Quá xuất sắc! Bạn nhận được túi kẹo lớn."; } 
+            else { candyCount = 8; message = "TUYỆT ĐỐI! BẠN LÀ THIÊN TÀI SĂN KẸO!"; }
+
+            return (
+              <div className="min-h-screen bg-gradient-to-b from-purple-600 to-indigo-800 flex items-center justify-center p-4 text-white text-center relative overflow-hidden">
+                 <div className="absolute inset-0 pointer-events-none">
+                    {[...Array(20)].map((_, i) => <Candy key={i} className="absolute text-white/10 animate-pulse" size={Math.random() * 50 + 30} style={{ top: `${Math.random() * 100}%`, left: `${Math.random() * 100}%`, animationDuration: `${Math.random() * 2 + 1}s`, transform: `rotate(${Math.random() * 360}deg)` }} />)}
+                 </div>
+                 <div className="max-w-lg w-full bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/20 shadow-2xl animate-scale-up z-10">
+                    <h1 className="text-4xl font-black mb-2 text-yellow-300 drop-shadow-md">KẾT QUẢ CHUNG CUỘC</h1>
+                    
+                    {/* Bảng điểm chi tiết */}
+                    <div className="mb-6 grid grid-cols-3 gap-2 w-full">
+                        {DATA_LEVELS.map((level, idx) => {
+                            const score = lastScores[level.id] || 0;
+                            return (
+                                <div key={idx} className="bg-white/20 rounded-xl p-2 flex flex-col items-center">
+                                    <span className="text-xs font-bold text-slate-200 mb-1 uppercase">Màn {level.id}</span>
+                                    <span className="text-2xl font-black">{score}</span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    
+                    <div className="text-6xl font-black mb-6">{totalScore}/100</div>
+
+                    <div className="bg-white/90 rounded-2xl p-6 mb-6 text-slate-800">
+                       <p className="text-xl font-bold mb-2 text-sky-600">{selectedName} - Biệt đội {selectedClass}</p>
+                       <p className="text-lg font-bold mb-4">{message}</p>
+                       <div className={`mx-auto w-fit gap-4 animate-bounce ${candyCount > 5 ? 'grid grid-cols-4' : 'flex justify-center'}`}>
+                          {[...Array(candyCount)].map((_, i) => <Candy key={i} size={40} className="text-yellow-500 fill-yellow-400 drop-shadow-md" style={{animationDelay: `${i * 100}ms`}} />)}
+                       </div>
+                       <p className="mt-4 font-bold text-rose-500 uppercase">Bạn nhận được {candyCount} chiếc kẹo!</p>
+                    </div>
+                    {/* Nút Kết thúc thay vì Chơi lại */}
+                    <button 
+                      onClick={handleFinishGame}
+                      className="px-8 py-4 bg-rose-500 hover:bg-rose-600 text-white text-xl font-bold rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto"
+                    >
+                       <LogOut size={24} /> KẾT THÚC
+                    </button>
+                 </div>
+              </div>
+            );
+          };
+
           return (
             <div className="font-sans antialiased">
               {currentScreen === 'login' && renderLogin()}
