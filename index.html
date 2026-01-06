@@ -42,6 +42,7 @@
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
+            overflow: hidden; /* Khóa cuộn */
         }
         
         /* Class cho các màn hình cần cuộn (Hướng dẫn, Login,...) */
@@ -415,11 +416,10 @@
           };
 
           const goHome = () => {
-            // Không reset scores khi về map để giữ điểm tổng
-            // setHighScores({}); // Bỏ
-            // setLastScores({}); // Bỏ
-            // setUnlockedLevels([1]); // Bỏ, giữ level đã unlock
-            // setRetriesUsed({}); // Bỏ
+            setHighScores({});
+            setLastScores({});
+            setUnlockedLevels([1]);
+            setRetriesUsed({});
             setCurrentScreen('instruction'); 
           };
 
@@ -469,9 +469,10 @@
             
             // Hàm xử lý chặn cuộn khi đang kéo
             const handleTouchMoveNonPassive = (e) => {
-                // Nếu đang kéo (dựa vào ref), chặn hành vi mặc định (cuộn)
-                if (isDraggingRef.current) {
-                    if (e.cancelable) e.preventDefault();
+                // SỬA ĐỔI: Luôn chặn hành vi cuộn mặc định trong vùng container của game nối
+                // Bất kể là đang kéo hay chỉ chạm vào, để màn hình "đứng yên" tuyệt đối
+                if (e.cancelable) {
+                    e.preventDefault();
                 }
             };
 
@@ -520,7 +521,7 @@
             if (!activeDrag) return;
             
             // Chặn sự kiện trong React handler (dự phòng)
-            if (isDraggingRef.current && e.cancelable) e.preventDefault(); 
+            if (e.cancelable) e.preventDefault(); 
 
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
