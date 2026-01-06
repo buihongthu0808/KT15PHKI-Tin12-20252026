@@ -34,16 +34,14 @@
         /* Ngăn chọn văn bản và cuộn trang trên vùng game */
         body {
             overscroll-behavior: none; /* Chặn hiệu ứng kéo nảy (rubber-banding) */
+            touch-action: none; /* Chặn cuộn trang toàn cục khi đang chơi */
         }
         .game-container {
             touch-action: none;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
         }
     </style>
 </head>
-<body class="bg-slate-50 overscroll-none">
+<body class="bg-slate-50 overscroll-none select-none">
     <div id="root"></div>
 
     <!-- Mã nguồn trò chơi -->
@@ -98,7 +96,7 @@
             color: "bg-emerald-600",
             bgColor: "bg-emerald-50",
             accentColor: "text-emerald-700",
-            timePerQuestion: 30, 
+            timePerQuestion: 40, 
             type: "multiple-choice",
             questions: [
               { 
@@ -152,7 +150,7 @@
             color: "bg-blue-600",
             bgColor: "bg-blue-50",
             accentColor: "text-blue-700",
-            timePerQuestion: 20, 
+            timePerQuestion: 30, 
             type: "multiple-choice",
             questions: [
               { 
@@ -181,7 +179,7 @@
             color: "bg-rose-600",
             bgColor: "bg-rose-50",
             accentColor: "text-rose-700",
-            timePerQuestion: 15,
+            timePerQuestion: 20,
             type: "matching",
             questions: [
               {
@@ -318,6 +316,8 @@
           
           // Ref để theo dõi trạng thái kéo ngay lập tức (tránh độ trễ của state)
           const isDraggingRef = useRef(false);
+          // Ref để chặn tương tác khi đang xử lý
+          const isProcessingRef = useRef(false);
 
           // --- LOGIC ---
 
@@ -399,16 +399,16 @@
             setSelectedOption(null);
             setFeedback(null);
             setConnections([]);
+            isProcessingRef.current = false;
             
             setCurrentScreen('game');
           };
 
           const goHome = () => {
-            // Không reset scores khi về map để giữ điểm tổng
-            // setHighScores({}); // Bỏ
-            // setLastScores({}); // Bỏ
-            // setUnlockedLevels([1]); // Bỏ, giữ level đã unlock
-            // setRetriesUsed({}); // Bỏ
+            setHighScores({});
+            setLastScores({});
+            setUnlockedLevels([1]);
+            setRetriesUsed({});
             setCurrentScreen('instruction'); 
           };
 
@@ -432,24 +432,41 @@
             return () => clearTimeout(timerRef.current);
           }, [timeLeft, currentScreen, isPaused, feedback]);
 
-          // --- QUẢN LÝ CHUYỂN CÂU HỎI ---
+          // --- QUẢN LÝ CHUYỂN CÂU HỎI (ĐÃ SỬA LỖI RACE CONDITION) ---
           useEffect(() => {
             if (currentScreen === 'game' && currentQuestions.length > 0) {
               if (questionIndex >= currentQuestions.length) {
                 finishGame();
               } else {
+                // RESET TOÀN BỘ TRẠNG THÁI NGAY LẬP TỨC
                 const level = DATA_LEVELS.find(l => l.id === currentLevelId);
-                if (level && feedback === null) {
+                if (level) {
                    setTimeLeft(level.timePerQuestion);
                    setSelectedOption(null);
                    setFeedback(null); 
                    setConnections([]);
+                   isProcessingRef.current = false;
                 }
               }
             }
           }, [questionIndex]); 
 
-          // --- MATCHING GAME LOGIC ---
+          // --- MATCHING GAME LOGIC (FIX TOUCH SCROLLING) ---
+          
+          useEffect(() => {
+            const container = containerRef.current;
+            if (!container) return;
+            const handleTouchMoveNonPassive = (e) => {
+                if (isDraggingRef.current) {
+                    if (e.cancelable) e.preventDefault();
+                }
+            };
+            container.addEventListener('touchmove', handleTouchMoveNonPassive, { passive: false });
+            return () => {
+                container.removeEventListener('touchmove', handleTouchMoveNonPassive);
+            };
+          }, [currentScreen, currentQuestions]); 
+
           const getCoordinates = (element) => {
             if (!containerRef.current || !element) return { x: 0, y: 0 };
             const containerRect = containerRef.current.getBoundingClientRect();
@@ -461,10 +478,17 @@
           };
 
           const handleDragStart = (id, e) => {
-            if (feedback !== null) return;
+            if (feedback !== null || isProcessingRef.current) return;
             if (connections.some(c => c.leftId === id)) return;
             
-            // Đánh dấu là đang kéo (ngay lập tức)
+            // XÓA nối cũ nếu có
+            const existingConnIndex = connections.findIndex(c => c.leftId === id);
+            if (existingConnIndex !== -1) {
+                const newConns = [...connections];
+                newConns.splice(existingConnIndex, 1);
+                setConnections(newConns);
+            }
+            
             isDraggingRef.current = true;
             
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -476,13 +500,8 @@
           };
 
           const handleDragMove = (e) => {
-            // Nếu đang ở trạng thái kéo (dựa vào ref để tránh độ trễ), chặn cuộn trang
-            if (isDraggingRef.current) {
-                if (e.cancelable) e.preventDefault();
-            }
-
             if (!activeDrag) return;
-            
+            if (isDraggingRef.current && e.cancelable) e.preventDefault(); 
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             if (containerRef.current) {
@@ -492,39 +511,39 @@
           };
 
           const handleDragEnd = (e) => {
-            // Kết thúc kéo
             isDraggingRef.current = false;
-
             if (!activeDrag) return;
             
             const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
             const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
-            
             const elements = document.elementsFromPoint(clientX, clientY);
             const rightItem = elements.find(el => el.getAttribute('data-right-id'));
             
             if (rightItem) {
               const rightId = rightItem.getAttribute('data-right-id');
-              if (!connections.some(c => c.rightId === rightId)) {
-                const newConnection = { leftId: activeDrag.startId, rightId: rightId };
-                const newConnections = [...connections, newConnection];
-                setConnections(newConnections);
-                const currentQ = currentQuestions[questionIndex];
-                if (newConnections.length === currentQ.leftItems.length) {
-                  checkMatchingAnswer(false, newConnections);
-                }
+              
+              // XÓA nối cũ vào ô phải này nếu có
+              const existingRightIndex = connections.findIndex(c => c.rightId === rightId);
+              let newConnections = [...connections];
+              
+              if (existingRightIndex !== -1) {
+                  newConnections.splice(existingRightIndex, 1);
               }
+              
+              newConnections.push({ leftId: activeDrag.startId, rightId: rightId });
+              setConnections(newConnections);
             }
             setActiveDrag(null);
           };
 
           const checkMatchingAnswer = (isTimeout, finalConnections = connections) => {
-            // Chặn gọi nhiều lần
-            if (feedback !== null) return;
+            if (feedback !== null || isProcessingRef.current) return;
 
             const currentQ = currentQuestions[questionIndex];
             if (!currentQ) return; 
             
+            isProcessingRef.current = true; // Khóa tương tác
+
             let isAllCorrect = true;
             if (finalConnections.length < currentQ.leftItems.length) isAllCorrect = false;
             else {
@@ -537,7 +556,7 @@
               setScore(prev => prev + 10);
               scoreRef.current += 10;
               setTimeout(() => {
-                 setFeedback(null); 
+                 setFeedback(null); // Đặt lại null trước khi chuyển
                  nextQuestion();
               }, 1500);
             } else {
@@ -553,7 +572,9 @@
 
           // --- MULTIPLE CHOICE LOGIC ---
           const handleMCAnswer = (optionIndex) => {
-            if (feedback !== null) return;
+            if (feedback !== null || isProcessingRef.current) return;
+            
+            isProcessingRef.current = true; // Khóa tương tác
             const currentQ = currentQuestions[questionIndex];
             setSelectedOption(optionIndex);
             if (optionIndex === currentQ.correct) {
@@ -701,7 +722,7 @@
                     <div>
                       <h3 className="font-bold text-emerald-800 text-lg">Cửa ải 1: Khu Rừng Bí Ẩn</h3>
                       <p className="text-sm text-slate-600">Trả lời các câu hỏi trắc nghiệm về kiến thức HTML.</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 text-xs font-bold rounded">30 giây / câu</span>
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 text-xs font-bold rounded">40 giây / câu</span>
                     </div>
                   </div>
 
@@ -710,7 +731,7 @@
                     <div>
                       <h3 className="font-bold text-blue-800 text-lg">Cửa ải 2: Đại Dương Sâu Thẳm</h3>
                       <p className="text-sm text-slate-600">Quyết định Đúng hoặc Sai về liên kết HTML.</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-blue-200 text-blue-800 text-xs font-bold rounded">20 giây / câu</span>
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-blue-200 text-blue-800 text-xs font-bold rounded">30 giây / câu</span>
                     </div>
                   </div>
 
@@ -719,7 +740,7 @@
                     <div>
                       <h3 className="font-bold text-rose-800 text-lg">Cửa ải 3: Núi Lửa Phun Trào</h3>
                       <p className="text-sm text-slate-600">Kéo thả để ghép nối các thẻ HTML với chức năng.</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-rose-200 text-rose-800 text-xs font-bold rounded">15 giây / câu</span>
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-rose-200 text-rose-800 text-xs font-bold rounded">20 giây / câu</span>
                     </div>
                   </div>
                 </div>
@@ -791,6 +812,8 @@
             if (!currentQ) return null;
             
             if (currentQ.type === 'matching') {
+              const isFullConnected = connections.length === currentQ.leftItems.length;
+
               return (
                 <div 
                   className={`flex flex-col min-h-screen ${level.bgColor} text-slate-800 relative select-none game-container`} 
@@ -831,7 +854,14 @@
                         {currentQ.leftItems.map((item) => {
                           const isConnected = connections.some(c => c.leftId === item.id);
                           return (
-                            <div key={item.id} ref={el => leftRefs.current[item.id] = el} onMouseDown={(e) => handleDragStart(item.id, e)} onTouchStart={(e) => handleDragStart(item.id, e)} className={`p-4 md:p-6 rounded-2xl border-4 font-bold text-center bg-white shadow-md relative z-20 cursor-grab active:cursor-grabbing touch-none ${isConnected ? 'border-slate-400 text-slate-400' : `border-indigo-200 text-indigo-700 hover:border-indigo-400`} ${activeDrag?.startId === item.id ? 'ring-4 ring-blue-300' : ''}`} style={{ touchAction: 'none' }}>
+                            <div 
+                              key={item.id} 
+                              ref={el => leftRefs.current[item.id] = el} 
+                              onMouseDown={(e) => handleDragStart(item.id, e)} 
+                              onTouchStart={(e) => handleDragStart(item.id, e)} 
+                              className={`p-4 md:p-6 rounded-2xl border-4 font-bold text-center bg-white shadow-md relative z-20 cursor-grab active:cursor-grabbing touch-none ${isConnected ? 'border-slate-400 text-slate-400' : `border-indigo-200 text-indigo-700 hover:border-indigo-400`} ${activeDrag?.startId === item.id ? 'ring-4 ring-blue-300' : ''}`}
+                              style={{ touchAction: 'none' }}
+                            >
                               {item.content}
                               <div className="absolute right-[-10px] top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-300 rounded-full border-2 border-white" />
                             </div>
@@ -842,7 +872,13 @@
                         {currentQ.rightItems.map((item) => {
                           const isConnected = connections.some(c => c.rightId === item.id);
                           return (
-                            <div key={item.id} ref={el => rightRefs.current[item.id] = el} data-right-id={item.id} className={`p-4 md:p-6 rounded-2xl border-4 font-bold text-center bg-white shadow-md relative z-20 transition-all ${isConnected ? 'border-slate-400 text-slate-400 bg-slate-50' : 'border-orange-200 text-orange-800'}`} style={{ touchAction: 'none' }}>
+                            <div 
+                              key={item.id} 
+                              ref={el => rightRefs.current[item.id] = el} 
+                              data-right-id={item.id} 
+                              className={`p-4 md:p-6 rounded-2xl border-4 font-bold text-center bg-white shadow-md relative z-20 transition-all ${isConnected ? 'border-slate-400 text-slate-400 bg-slate-50' : 'border-orange-200 text-orange-800'}`}
+                              style={{ touchAction: 'none' }}
+                            >
                               {item.content}
                               <div className="absolute left-[-10px] top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-300 rounded-full border-2 border-white" />
                             </div>
@@ -850,6 +886,21 @@
                         })}
                       </div>
                     </div>
+                    {/* Nút xác nhận trả lời cho Matching */}
+                    <div className="mt-8 text-center z-20 relative">
+                        <button 
+                            onClick={() => checkMatchingAnswer(false)}
+                            disabled={!isFullConnected || feedback !== null}
+                            className={`px-8 py-3 rounded-full font-bold text-xl shadow-lg transition-all ${
+                            isFullConnected && feedback === null
+                                ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:scale-105 active:scale-95' 
+                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            }`}
+                        >
+                            XÁC NHẬN CÂU TRẢ LỜI
+                        </button>
+                    </div>
+
                     {feedback && <div className={`mt-4 text-center font-black text-xl animate-bounce ${feedback === 'correct' ? 'text-green-600' : 'text-red-600'}`}>{feedback === 'correct' ? "CHÍNH XÁC! TUYỆT VỜI!" : "SAI RỒI! HÃY CỐ GẮNG HƠN!"}</div>}
                   </div>
                 </div>
@@ -900,7 +951,6 @@
           const renderResult = () => {
             const level = DATA_LEVELS.find(l => l.id === currentLevelId);
             const isLastLevel = currentLevelId === DATA_LEVELS.length;
-            // Kiểm tra xem có phải đang ở trạng thái "Hết lượt chơi lại" không (được đánh dấu bởi retryUsed[level.id])
             const isOutOfRetries = retriesUsed[level.id];
 
             return (
@@ -913,7 +963,6 @@
                    <div className="mt-10 mb-6">
                      <h2 className="text-3xl font-black uppercase text-slate-700">Kết Thúc Màn {currentLevelId}</h2>
                      <p className="text-slate-500 font-medium mt-2">Bạn đã hoàn thành phần chơi này.</p>
-                     {/* Hiển thị thông báo nếu hết lượt chơi lại */}
                      {isOutOfRetries && (
                         <p className="text-red-500 font-bold mt-2 animate-pulse">Bạn đã sử dụng hết lượt chơi lại ở màn này!</p>
                      )}
